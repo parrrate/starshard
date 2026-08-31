@@ -198,7 +198,7 @@ impl Key for ChaCha {
         let nonce = &nonce.as_slice()[..12];
         let encrypted = cipher
             .encrypt(GenericArray::from_slice(nonce), data)
-            .expect("we do not handle decryption errors");
+            .expect("we do not handle encryption errors");
         [nonce, encrypted.as_slice()].concat()
     }
 
