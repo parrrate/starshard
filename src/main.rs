@@ -32,6 +32,14 @@ enum Cmd {
     BeaconSend { to: Ipv4Addr, path: PathBuf },
 }
 
+fn ws_config() -> Option<WebSocketConfig> {
+    Some(
+        WebSocketConfig::default()
+            .max_message_size(Some(100_000_000))
+            .max_frame_size(Some(100_000_000)),
+    )
+}
+
 fn main() -> object_rainbow::Result<()> {
     async_io::block_on(async {
         dotenvy::dotenv().ok();
@@ -88,16 +96,9 @@ fn main() -> object_rainbow::Result<()> {
                     .map_err(object_rainbow::Error::operation)?;
                 let listener = async_net::TcpListener::bind("0.0.0.0:11426").await?;
                 let (stream, _) = listener.accept().await?;
-                let stream = async_tungstenite::accept_async_with_config(
-                    stream,
-                    Some(
-                        WebSocketConfig::default()
-                            .max_message_size(Some(100_000_000))
-                            .max_frame_size(Some(100_000_000)),
-                    ),
-                )
-                .await
-                .map_err(object_rainbow::Error::fetch)?;
+                let stream = async_tungstenite::accept_async_with_config(stream, ws_config())
+                    .await
+                    .map_err(object_rainbow::Error::fetch)?;
                 let (send, recv) = stream.split();
                 let send = send
                     .sink_map_err(object_rainbow::Error::fetch)
@@ -138,11 +139,7 @@ fn main() -> object_rainbow::Result<()> {
                 let (stream, _) = async_tungstenite::client_async_with_config(
                     format!("ws://{to}"),
                     stream,
-                    Some(
-                        WebSocketConfig::default()
-                            .max_message_size(Some(100_000_000))
-                            .max_frame_size(Some(100_000_000)),
-                    ),
+                    ws_config(),
                 )
                 .await
                 .map_err(object_rainbow::Error::fetch)?;
