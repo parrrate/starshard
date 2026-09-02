@@ -11,12 +11,11 @@ use chacha20poly1305::{
 };
 use clap::{Parser, Subcommand};
 use futures_util::{SinkExt, TryStreamExt};
-use object_rainbow::{Fetch, FullHash, ParseSliceRefless, SizeExt, ToOutput, zero_terminated::Zt};
-use object_rainbow_amt::AmtMap;
+use object_rainbow::{Fetch, FullHash, ParseSliceRefless, SizeExt, ToOutput};
 use object_rainbow_bridge::{Consume, Provide, consume, provide};
-use object_rainbow_cdc::Chunks;
+use object_rainbow_cdc::{Chunks, amt::FileMap};
 use object_rainbow_encrypted::{Encrypted, Key, encrypt_point};
-use object_rainbow_point::{IntoPoint, Point, RawPointInner};
+use object_rainbow_point::{IntoPoint, RawPointInner};
 
 #[derive(Parser)]
 struct Args {
@@ -115,9 +114,9 @@ fn main() -> object_rainbow::Result<()> {
                     .try_for_each_concurrent(None, |(chunks, _)| {
                         let path = path.clone();
                         let point = RawPointInner::from_singular(chunks)
-                            .cast::<Encrypted<ChaCha, AmtMap<Zt<String>, Option<Point<Chunks>>>>, _>(
-                                ChaCha(From::from(password.data_hash().to_array())),
-                            )
+                            .cast::<Encrypted<ChaCha, FileMap>, _>(ChaCha(From::from(
+                                password.data_hash().to_array(),
+                            )))
                             .into_point();
                         let acquire = lock.acquire();
                         async move {

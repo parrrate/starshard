@@ -860,7 +860,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 [[package]]
 name = "object-rainbow"
 version = "0.0.0-a.69"
-source = "git+https://github.com/parrrate/object-rainbow#4aa2fe4b3f7b896c9b326ed68120dd6b4ccba369"
+source = "git+https://github.com/parrrate/object-rainbow#0c12654082acd7c94e2c6e82f4b50c14482e8e15"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -878,7 +878,7 @@ dependencies = [
 [[package]]
 name = "object-rainbow-amt"
 version = "0.0.0-a.9"
-source = "git+https://github.com/parrrate/object-rainbow#4aa2fe4b3f7b896c9b326ed68120dd6b4ccba369"
+source = "git+https://github.com/parrrate/object-rainbow#0c12654082acd7c94e2c6e82f4b50c14482e8e15"
 dependencies = [
  "futures-util",
  "genawaiter-try-stream",
@@ -891,7 +891,7 @@ dependencies = [
 [[package]]
 name = "object-rainbow-array-map"
 version = "0.0.0-a.13"
-source = "git+https://github.com/parrrate/object-rainbow#4aa2fe4b3f7b896c9b326ed68120dd6b4ccba369"
+source = "git+https://github.com/parrrate/object-rainbow#0c12654082acd7c94e2c6e82f4b50c14482e8e15"
 dependencies = [
  "bitvec",
  "object-rainbow",
@@ -900,7 +900,7 @@ dependencies = [
 [[package]]
 name = "object-rainbow-bridge"
 version = "0.0.0-a.0"
-source = "git+https://github.com/parrrate/object-rainbow#4aa2fe4b3f7b896c9b326ed68120dd6b4ccba369"
+source = "git+https://github.com/parrrate/object-rainbow#0c12654082acd7c94e2c6e82f4b50c14482e8e15"
 dependencies = [
  "async-executor",
  "flume",
@@ -914,7 +914,7 @@ dependencies = [
 [[package]]
 name = "object-rainbow-cdc"
 version = "0.0.0-a.0"
-source = "git+https://github.com/parrrate/object-rainbow#4aa2fe4b3f7b896c9b326ed68120dd6b4ccba369"
+source = "git+https://github.com/parrrate/object-rainbow#0c12654082acd7c94e2c6e82f4b50c14482e8e15"
 dependencies = [
  "async-fs",
  "async-walkdir",
@@ -932,7 +932,7 @@ dependencies = [
 [[package]]
 name = "object-rainbow-derive"
 version = "0.0.0-a.24"
-source = "git+https://github.com/parrrate/object-rainbow#4aa2fe4b3f7b896c9b326ed68120dd6b4ccba369"
+source = "git+https://github.com/parrrate/object-rainbow#0c12654082acd7c94e2c6e82f4b50c14482e8e15"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -943,7 +943,7 @@ dependencies = [
 [[package]]
 name = "object-rainbow-encrypted"
 version = "0.0.0-a.21"
-source = "git+https://github.com/parrrate/object-rainbow#4aa2fe4b3f7b896c9b326ed68120dd6b4ccba369"
+source = "git+https://github.com/parrrate/object-rainbow#0c12654082acd7c94e2c6e82f4b50c14482e8e15"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -955,7 +955,7 @@ dependencies = [
 [[package]]
 name = "object-rainbow-parse-prefix"
 version = "0.0.0-a.6"
-source = "git+https://github.com/parrrate/object-rainbow#4aa2fe4b3f7b896c9b326ed68120dd6b4ccba369"
+source = "git+https://github.com/parrrate/object-rainbow#0c12654082acd7c94e2c6e82f4b50c14482e8e15"
 dependencies = [
  "object-rainbow",
 ]
@@ -963,7 +963,7 @@ dependencies = [
 [[package]]
 name = "object-rainbow-point"
 version = "0.0.0-a.16"
-source = "git+https://github.com/parrrate/object-rainbow#4aa2fe4b3f7b896c9b326ed68120dd6b4ccba369"
+source = "git+https://github.com/parrrate/object-rainbow#0c12654082acd7c94e2c6e82f4b50c14482e8e15"
 dependencies = [
  "futures-util",
  "object-rainbow",
@@ -1212,7 +1212,6 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "object-rainbow",
- "object-rainbow-amt",
  "object-rainbow-bridge",
  "object-rainbow-cdc",
  "object-rainbow-encrypted",
