@@ -17,8 +17,7 @@ futures-util = "0.3.34"
 object-rainbow = { git = "https://github.com/parrrate/object-rainbow" }
 object-rainbow-bridge = { git = "https://github.com/parrrate/object-rainbow" }
 object-rainbow-cdc = { git = "https://github.com/parrrate/object-rainbow", features = [
-    "fs",
-    "walkdir",
+    "dirtree",
 ] }
 object-rainbow-encrypted = { git = "https://github.com/parrrate/object-rainbow" }
 object-rainbow-point = { git = "https://github.com/parrrate/object-rainbow" }

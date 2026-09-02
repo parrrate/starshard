@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use futures_util::{SinkExt, TryStreamExt};
 use object_rainbow::{Fetch, FullHash, ParseSliceRefless, SizeExt, ToOutput};
 use object_rainbow_bridge::{Consume, Provide, consume, provide};
-use object_rainbow_cdc::{Chunks, amt::FileMap};
+use object_rainbow_cdc::{Chunks, dirtree::FileTree};
 use object_rainbow_encrypted::{Encrypted, Key, encrypt_point};
 use object_rainbow_point::{IntoPoint, RawPointInner};
 
@@ -114,14 +114,15 @@ fn main() -> object_rainbow::Result<()> {
                     .try_for_each_concurrent(None, |(chunks, _)| {
                         let path = path.clone();
                         let point = RawPointInner::from_singular(chunks)
-                            .cast::<Encrypted<ChaCha, FileMap>, _>(ChaCha(From::from(
+                            .cast::<Encrypted<ChaCha, FileTree>, _>(ChaCha(From::from(
                                 password.data_hash().to_array(),
                             )))
                             .into_point();
                         let acquire = lock.acquire();
                         async move {
                             let _guard = acquire.await;
-                            Chunks::write_dir(path, point.fetch().await?.into_inner()).await?;
+                            Chunks::write_tree(path, Encrypted::into_inner(point.fetch().await?))
+                                .await?;
                             Ok(())
                         }
                     })
@@ -161,9 +162,9 @@ fn main() -> object_rainbow::Result<()> {
                     recv,
                     futures_util::stream::once(core::future::ready(Ok((
                         Arc::new(
-                            encrypt_point(
+                            encrypt_point::<_, FileTree>(
                                 ChaCha(From::from(password.data_hash().to_array())),
-                                Chunks::read_dir(path).await?.point(),
+                                Chunks::read_tree(path).await?.point(),
                             )
                             .await?,
                         ) as _,
