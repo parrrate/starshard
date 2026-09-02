@@ -4,6 +4,7 @@ version = "0.0.0-a.0"
 edition = "2024"
 
 [dependencies]
+async-executor = "1.14.0"
 async-fs = "2.2.0"
 async-io = "2.6.0"
 async-lock = "3.4.2"
@@ -11,14 +12,19 @@ async-net = "2.0.0"
 async-tungstenite = "0.35.0"
 chacha20poly1305 = { version = "0.10.1", features = ["std"] }
 clap = { version = "4.6.6", features = ["derive", "env"] }
+crossterm = { version = "0.29.0", features = ["event-stream"] }
 dialoguer = "0.12.0"
 dotenvy = "0.15.7"
+flume = "0.12.0"
 futures-util = "0.3.34"
+genawaiter-try-stream = "0.1.0"
 object-rainbow = { git = "https://github.com/parrrate/object-rainbow" }
 object-rainbow-bridge = { git = "https://github.com/parrrate/object-rainbow" }
 object-rainbow-cdc = { git = "https://github.com/parrrate/object-rainbow", features = [
     "dirtree",
 ] }
+object-rainbow-dirtree = { git = "https://github.com/parrrate/object-rainbow" }
 object-rainbow-encrypted = { git = "https://github.com/parrrate/object-rainbow" }
 object-rainbow-point = { git = "https://github.com/parrrate/object-rainbow" }
+ratatui = "0.30.2"
 sha2 = "0.11.0"

@@ -2,6 +2,7 @@ use std::{
     collections::BTreeSet, env::current_dir, future::ready, net::Ipv4Addr, path::PathBuf, sync::Arc,
 };
 
+use async_executor::{Executor, Task};
 use async_fs::read_dir;
 use async_lock::Semaphore;
 use async_tungstenite::{WebSocketStream, tungstenite::protocol::WebSocketConfig};
@@ -10,12 +11,21 @@ use chacha20poly1305::{
     aead::{Aead, generic_array::GenericArray},
 };
 use clap::{Parser, Subcommand};
-use futures_util::{Sink, SinkExt, Stream, TryStreamExt};
-use object_rainbow::{FullHash, ParseSliceRefless, ReflessObject, SizeExt, ToOutput};
+use crossterm::event::{self, KeyCode};
+use futures_util::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
+use genawaiter_try_stream::try_stream;
+use object_rainbow::{
+    FullHash, ParseSliceRefless, ReflessObject, Singular, SizeExt, ToOutput, zero_terminated::Zt,
+};
 use object_rainbow_bridge::{consume, provide};
 use object_rainbow_cdc::{Chunks, dirtree::FileTree};
+use object_rainbow_dirtree::DirEntry;
 use object_rainbow_encrypted::{Encrypted, Key, encrypt_point};
-use object_rainbow_point::{IntoPoint, RawPointInner};
+use object_rainbow_point::{IntoPoint, Point, RawPointInner};
+use ratatui::{
+    style::Modifier,
+    widgets::{List, ListState},
+};
 
 #[derive(Parser)]
 struct Args {
@@ -30,6 +40,7 @@ enum Cmd {
     ChunksHash { path: PathBuf },
     BeaconRecv { path: PathBuf },
     BeaconSend { to: Ipv4Addr, path: PathBuf },
+    BeaconBrowse { path: PathBuf },
 }
 
 fn ws_config() -> Option<WebSocketConfig> {
@@ -166,6 +177,264 @@ fn main() -> object_rainbow::Result<()> {
                     )))),
                 )
                 .await?;
+            }
+            Cmd::BeaconBrowse { path } => {
+                struct Notify;
+                enum BrowseEvent {
+                    Crossterm(crossterm::event::Event),
+                    Chunks(Arc<dyn Singular>),
+                    Notify(Notify),
+                }
+                enum BrowseFrame {
+                    Pending {
+                        done: Task<object_rainbow::Result<BrowseFrame>>,
+                    },
+                    File {
+                        chunks: Chunks,
+                        len: usize,
+                    },
+                    Directory {
+                        children: Vec<(Zt<String>, Arc<FileTree>)>,
+                        state: ListState,
+                    },
+                }
+                impl BrowseFrame {
+                    fn into_entry(self) -> Option<FileTree> {
+                        match self {
+                            Self::Pending { .. } => None,
+                            Self::File { chunks, .. } => Some(DirEntry::File(chunks.point())),
+                            Self::Directory { children, .. } => Some(DirEntry::Directory {
+                                children: children.into_iter().collect(),
+                                directory: (),
+                            }),
+                        }
+                    }
+                }
+                struct NotifyGuard {
+                    send: flume::WeakSender<Notify>,
+                }
+                impl Drop for NotifyGuard {
+                    fn drop(&mut self) {
+                        if let Some(send) = self.send.upgrade() {
+                            send.try_send(Notify).ok();
+                        }
+                    }
+                }
+                let path = &*path;
+                let password = dialoguer::Password::new()
+                    .with_prompt("password")
+                    .interact()
+                    .map_err(object_rainbow::Error::operation)?;
+                let mut consume = try_stream(async move |co| {
+                    let listener = async_net::TcpListener::bind("0.0.0.0:11426").await?;
+                    let (stream, _) = listener.accept().await?;
+                    let stream = async_tungstenite::accept_async_with_config(stream, ws_config())
+                        .await
+                        .map_err(object_rainbow::Error::fetch)?;
+                    let (send, recv) = split(stream);
+                    consume(send, recv)
+                        .try_for_each(async |item| {
+                            co.yield_(item).await;
+                            Ok(())
+                        })
+                        .await
+                })
+                .fuse();
+                let executor = Executor::new();
+                let (send_notify, recv_notify) = flume::unbounded();
+                let ng = || NotifyGuard {
+                    send: send_notify.downgrade(),
+                };
+                ratatui::run(|terminal| {
+                    async_io::block_on(executor.run(async {
+                        let stream = event::EventStream::new()
+                            .map_err(object_rainbow::Error::from)
+                            .map_ok(BrowseEvent::Crossterm);
+                        let stream = futures_util::stream::select(
+                            stream,
+                            recv_notify.into_stream().map(BrowseEvent::Notify).map(Ok),
+                        );
+                        let mut stream = futures_util::stream::select(
+                            stream,
+                            (&mut consume)
+                                .map_ok(|(chunks, _)| BrowseEvent::Chunks(Arc::new(chunks))),
+                        );
+                        let mut frames = Vec::<BrowseFrame>::new();
+                        let mut segments = Vec::<Zt<String>>::new();
+                        let mut needs_close = false;
+                        let mut save_task: Option<Task<object_rainbow::Result<()>>> = None;
+                        loop {
+                            if let Some(BrowseFrame::Pending { done, .. }) = frames.last_mut()
+                                && done.is_finished()
+                                && let Some(BrowseFrame::Pending { done, .. }) = frames.pop()
+                            {
+                                frames.push(done.await?);
+                            }
+                            if let Some(task) = &save_task
+                                && task.is_finished()
+                                && let Some(task) = save_task
+                            {
+                                task.await?;
+                                break;
+                            }
+                            terminal.draw(|frame| {
+                                if save_task.is_some() {
+                                    frame.render_widget("saving...", frame.area());
+                                } else if let Some(state) = frames.last_mut() {
+                                    match state {
+                                        BrowseFrame::Pending { .. } => {
+                                            frame.render_widget("loading...", frame.area());
+                                        }
+                                        BrowseFrame::File { len, .. } => {
+                                            frame.render_widget(
+                                                format!("this is a file ({len} bytes)"),
+                                                frame.area(),
+                                            );
+                                        }
+                                        BrowseFrame::Directory { children, state } => {
+                                            let children = children
+                                                .iter()
+                                                .map(|(segment, dir)| {
+                                                    (dir.is_file(), segment.to_string())
+                                                })
+                                                .map(|(is_file, segment)| {
+                                                    format!(
+                                                        "{segment}{}",
+                                                        if is_file { "" } else { "/" },
+                                                    )
+                                                });
+                                            frame.render_stateful_widget(
+                                                List::new(children)
+                                                    .highlight_style(Modifier::REVERSED),
+                                                frame.area(),
+                                                state,
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    frame.render_widget("nothing available", frame.area());
+                                }
+                            })?;
+                            let tree_to_frame = async |tree: FileTree| {
+                                Ok::<_, object_rainbow::Error>(match tree {
+                                    DirEntry::File(chunks) => {
+                                        let chunks = chunks.fetch().await?;
+                                        let len = chunks.len()?;
+                                        BrowseFrame::File { chunks, len }
+                                    }
+                                    DirEntry::Directory {
+                                        children,
+                                        directory: (),
+                                    } => {
+                                        let mut children = children.collect::<Vec<_>>().await?;
+                                        children.sort_by_key(|x| x.1.is_file());
+                                        BrowseFrame::Directory {
+                                            children,
+                                            state: ListState::default().with_selected(Some(0)),
+                                        }
+                                    }
+                                })
+                            };
+                            match stream.try_next().await? {
+                                Some(BrowseEvent::Chunks(chunks)) => {
+                                    needs_close = true;
+                                    frames.clear();
+                                    segments.clear();
+                                    let point: Point<Encrypted<ChaCha, FileTree>> =
+                                        RawPointInner::from_singular(chunks)
+                                            .cast(ChaCha(From::from(
+                                                password.data_hash().to_array(),
+                                            )))
+                                            .into_point();
+                                    let done = executor.spawn({
+                                        let guard = ng();
+                                        async move {
+                                            let _guard = guard;
+                                            tree_to_frame(point.fetch().await?.into_inner()).await
+                                        }
+                                    });
+                                    frames.push(BrowseFrame::Pending { done });
+                                }
+                                Some(BrowseEvent::Notify(_)) => {}
+                                Some(BrowseEvent::Crossterm(e))
+                                    if let Some(e) = e.as_key_press_event() =>
+                                {
+                                    if e.code == KeyCode::Esc || e.code == KeyCode::Char('c') {
+                                        break;
+                                    }
+                                    if e.code == KeyCode::Char('w')
+                                        && frames.len() == 1
+                                        && let Some(frame) = frames.last()
+                                        && matches!(
+                                            frame,
+                                            BrowseFrame::File { .. }
+                                                | BrowseFrame::Directory { .. },
+                                        )
+                                        && let Some(frame) = frames.pop()
+                                        && let Some(tree) = frame.into_entry()
+                                    {
+                                        let guard = ng();
+                                        save_task = Some(executor.spawn(async move {
+                                            let _guard = guard;
+                                            Chunks::write_tree(path, tree).await
+                                        }));
+                                    }
+                                    if e.code == KeyCode::Left
+                                        && frames.len() > 1
+                                        && let Some(frame) = frames.pop()
+                                        && let Some(segment) = segments.pop()
+                                        && let Some(new) = frame.into_entry()
+                                        && let Some(BrowseFrame::Directory { children, .. }) =
+                                            frames.last_mut()
+                                        && let Some((_, old)) =
+                                            children.iter_mut().find(|x| x.0 == segment)
+                                    {
+                                        *old = new.into();
+                                    }
+                                    if let Some(BrowseFrame::Directory { children, state }) =
+                                        frames.last_mut()
+                                    {
+                                        let selected = state.selected_mut().get_or_insert_default();
+                                        if e.code == KeyCode::Up {
+                                            *selected = (*selected).saturating_sub(1);
+                                        }
+                                        if e.code == KeyCode::Down {
+                                            *selected = (*selected).saturating_add(1);
+                                        }
+                                        if e.code == KeyCode::Delete && *selected < children.len() {
+                                            children.remove(*selected);
+                                        }
+                                        if e.code == KeyCode::Right
+                                            && let Some((segment, child)) = children.get(*selected)
+                                        {
+                                            let done = executor.spawn({
+                                                let guard = ng();
+                                                let child = (**child).clone();
+                                                async move {
+                                                    let _guard = guard;
+                                                    tree_to_frame(child).await
+                                                }
+                                            });
+                                            segments.push(segment.clone());
+                                            frames.push(BrowseFrame::Pending { done });
+                                        }
+                                    }
+                                }
+                                Some(BrowseEvent::Crossterm(_)) => {}
+                                None => {
+                                    break;
+                                }
+                            }
+                        }
+                        drop(frames);
+                        if needs_close {
+                            consume
+                                .try_for_each(|_| core::future::ready(Ok(())))
+                                .await?;
+                        }
+                        Ok::<_, object_rainbow::Error>(())
+                    }))
+                })?;
             }
         }
         Ok(())
