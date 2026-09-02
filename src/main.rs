@@ -4,15 +4,15 @@ use std::{
 
 use async_fs::read_dir;
 use async_lock::Semaphore;
-use async_tungstenite::tungstenite::protocol::WebSocketConfig;
+use async_tungstenite::{WebSocketStream, tungstenite::protocol::WebSocketConfig};
 use chacha20poly1305::{
     ChaCha20Poly1305,
     aead::{Aead, generic_array::GenericArray},
 };
 use clap::{Parser, Subcommand};
-use futures_util::{SinkExt, TryStreamExt};
-use object_rainbow::{Fetch, FullHash, ParseSliceRefless, SizeExt, ToOutput};
-use object_rainbow_bridge::{Consume, Provide, consume, provide};
+use futures_util::{Sink, SinkExt, Stream, TryStreamExt};
+use object_rainbow::{FullHash, ParseSliceRefless, ReflessObject, SizeExt, ToOutput};
+use object_rainbow_bridge::{consume, provide};
 use object_rainbow_cdc::{Chunks, dirtree::FileTree};
 use object_rainbow_encrypted::{Encrypted, Key, encrypt_point};
 use object_rainbow_point::{IntoPoint, RawPointInner};
@@ -38,6 +38,24 @@ fn ws_config() -> Option<WebSocketConfig> {
             .max_message_size(Some(100_000_000))
             .max_frame_size(Some(100_000_000)),
     )
+}
+
+fn split<In: ReflessObject, Out: ReflessObject>(
+    stream: WebSocketStream<async_net::TcpStream>,
+) -> (
+    impl Sink<Out, Error = object_rainbow::Error>,
+    impl Stream<Item = object_rainbow::Result<In>>,
+) {
+    let (send, recv) = stream.split();
+    let send = send
+        .sink_map_err(object_rainbow::Error::fetch)
+        .with(|msg: Out| core::future::ready(Ok::<_, object_rainbow::Error>(msg.vec().into())));
+    let recv = recv
+        .map_err(object_rainbow::Error::fetch)
+        .try_filter(|msg| core::future::ready(msg.is_binary()))
+        .map_ok(|msg| msg.into_data())
+        .and_then(|msg| core::future::ready(In::parse_slice_refless(&msg)));
+    (send, recv)
 }
 
 fn main() -> object_rainbow::Result<()> {
@@ -99,17 +117,7 @@ fn main() -> object_rainbow::Result<()> {
                 let stream = async_tungstenite::accept_async_with_config(stream, ws_config())
                     .await
                     .map_err(object_rainbow::Error::fetch)?;
-                let (send, recv) = stream.split();
-                let send = send
-                    .sink_map_err(object_rainbow::Error::fetch)
-                    .with(|msg: Consume| {
-                        core::future::ready(Ok::<_, object_rainbow::Error>(msg.vec().into()))
-                    });
-                let recv = recv
-                    .map_err(object_rainbow::Error::fetch)
-                    .try_filter(|msg| core::future::ready(msg.is_binary()))
-                    .map_ok(|msg| msg.into_data())
-                    .and_then(|msg| core::future::ready(Provide::parse_slice_refless(&msg)));
+                let (send, recv) = split(stream);
                 let lock = Semaphore::new(1);
                 consume(send, recv)
                     .try_for_each_concurrent(None, |(chunks, _)| {
@@ -122,8 +130,7 @@ fn main() -> object_rainbow::Result<()> {
                         let acquire = lock.acquire();
                         async move {
                             let _guard = acquire.await;
-                            Chunks::write_tree(path, Encrypted::into_inner(point.fetch().await?))
-                                .await?;
+                            Chunks::write_tree(path, point.fetch().await?.into_inner()).await?;
                             Ok(())
                         }
                     })
@@ -143,17 +150,7 @@ fn main() -> object_rainbow::Result<()> {
                 )
                 .await
                 .map_err(object_rainbow::Error::fetch)?;
-                let (send, recv) = stream.split();
-                let send = send
-                    .sink_map_err(object_rainbow::Error::fetch)
-                    .with(|msg: Provide| {
-                        core::future::ready(Ok::<_, object_rainbow::Error>(msg.vec().into()))
-                    });
-                let recv = recv
-                    .map_err(object_rainbow::Error::fetch)
-                    .try_filter(|msg| core::future::ready(msg.is_binary()))
-                    .map_ok(|msg| msg.into_data())
-                    .and_then(|msg| core::future::ready(Consume::parse_slice_refless(&msg)));
+                let (send, recv) = split(stream);
                 provide(
                     send,
                     recv,
